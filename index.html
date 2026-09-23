@@ -1,173 +1,861 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Maison tranquille</title>
-    <style>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Nothing to see</title>
+	<link rel="preload" href="assets/images/background.webp" as="image">
+	<link rel="preload" href="assets/audio/sound.webm" as="audio">
+	<link rel="preload" href="assets/images/aliens/image1.webp" as="image">
+	<link rel="preload" href="assets/images/aliens/image2.webp" as="image">
+	<link rel="preload" href="assets/images/aliens/image3.webp" as="image">
+	<link rel="preload" href="assets/images/aliens/image4.webp" as="image">
+	<link rel="preload" href="assets/images/aliens/image5.webp" as="image">
+	<link rel="preload" href="assets/images/aliens/image6.webp" as="image">
+	<link rel="preload" href="assets/images/aliens/image7.webp" as="image">
+	<style>
 		html, body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            height: 100%;
-        }
-        
+			margin: 0;
+			padding: 0;
+			overflow: hidden;
+			height: 100%;
+		}
+
 		body {
 			overflow: hidden;
-        }
+		}
 
-        .background {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-image: url('background.jpg');
-            background-size: cover;
-            background-position: center;
-            transition: filter 1s ease;
-        }
+		.background {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background-image: url('assets/images/background.webp');
+			background-size: cover;
+			background-position: center;
+			transition: filter 1s ease;
+			transform: translateZ(0);
+			contain: strict;
+			backface-visibility: hidden;
+			will-change: filter;
+		}
 
-        .image {
-            position: absolute;
-            width: 100px;
-            height: 100px;
-            background-color: transparent;
-        }
+		#alien-canvas {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			pointer-events: none;
+			z-index: 5;
+			transform: translateZ(0);
+			will-change: transform;
+		}
 
-        #alien-text {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 120px;
-            font-family: Arial, sans-serif;
-            color: green;
-            opacity: 0;
-            text-align: center;
-            z-index: 10;
-        }
-    </style>
+		#alien-text {
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+			font-size: 120px;
+			font-family: Arial, sans-serif;
+			color: green;
+			opacity: 0;
+			text-align: center;
+			z-index: 10;
+			transition: opacity 0.5s ease;
+			will-change: opacity;
+		}
+	</style>
 </head>
 <body>
 
-    <audio id="background-audio" loop>
-        <source src="sound.mp3" type="audio/mp3">
-    </audio>
+	<audio id="background-audio" preload="auto" loop>
+		<source src="assets/audio/sound.webm" type="audio/webm">
+	</audio>
 
-    <div class="background" id="background"></div>
+	<div class="background" id="background"></div>
+
+	<canvas id="alien-canvas"></canvas>
 
     <div id="alien-text">Alien Invasion</div>
 
-    <script>
-        const imageSources = [
-            "image1.PNG", "image2.PNG", "image3.PNG", 
-            "image4.PNG", "image5.PNG", "image6.PNG", "image7.PNG"
-        ];
-        const speed = 3;
-        let images = [];
+	<script>
+		const imageSources = [
+			"assets/images/aliens/image1.webp",
+			"assets/images/aliens/image2.webp",
+			"assets/images/aliens/image3.webp",
+			"assets/images/aliens/image4.webp",
+			"assets/images/aliens/image5.webp",
+			"assets/images/aliens/image6.webp",
+			"assets/images/aliens/image7.webp"
+		];
+		const speed = 3;
+		const alienSize = 100;
+		const halfSize = alienSize / 2;
+		const canvas = document.getElementById("alien-canvas");
+		const glContextAttributes = {
+			alpha: true,
+			antialias: false,
+			depth: false,
+			stencil: false,
+			premultipliedAlpha: true,
+			powerPreference: "high-performance"
+		};
+		const gl = canvas.getContext("webgl", glContextAttributes) || canvas.getContext("experimental-webgl", glContextAttributes);
+		const ctx = gl ? null : canvas.getContext("2d");
 
-        function createMovingImage(src) {
-            let img = document.createElement("img");
-            img.src = src;
-            img.classList.add("image");
-            document.body.appendChild(img);
+		const vsSource = `
+			attribute vec2 a_position;
+			attribute vec2 a_texCoord;
+			attribute float a_brightness;
+			uniform vec2 u_resolution;
+			varying vec2 v_texCoord;
+			varying float v_brightness;
+			void main() {
+				vec2 zeroToOne = a_position / u_resolution;
+				vec2 zeroToTwo = zeroToOne * 2.0;
+				vec2 clipSpace = zeroToTwo - 1.0;
+				gl_Position = vec4(clipSpace.x, -clipSpace.y, 0.0, 1.0);
+				v_texCoord = a_texCoord;
+				v_brightness = a_brightness;
+			}
+		`;
 
-            let x = (0.4 + 0.2 * Math.random()) * window.innerWidth;
-            let y = (0.4 + 0.2 * Math.random()) * window.innerHeight;
-            img.style.left = `${x}px`;
-            img.style.top = `${y}px`;
+		const fsSource = `
+			precision mediump float;
+			varying vec2 v_texCoord;
+			varying float v_brightness;
+			uniform sampler2D u_texture;
+			void main() {
+				vec4 texColor = texture2D(u_texture, v_texCoord);
+				float alpha = texColor.a;
+				gl_FragColor = vec4(texColor.rgb * (v_brightness * alpha), alpha);
+			}
+		`;
 
-            let direction = Math.random() * Math.PI * 2;
-            let dx = Math.cos(direction) * speed + (0.1 - 0.2 * Math.random());
-            let dy = Math.sin(direction) * speed + (0.1 - 0.2 * Math.random());
+		function compileShader(targetContext, shaderType, source) {
+			const shader = targetContext.createShader(shaderType);
+			targetContext.shaderSource(shader, source);
+			targetContext.compileShader(shader);
+			if (!targetContext.getShaderParameter(shader, targetContext.COMPILE_STATUS)) {
+				targetContext.deleteShader(shader);
+				return null;
+			}
+			return shader;
+		}
 
-            img.style.transform = `rotate(${Math.random() * 360}deg)`;
-            if (Math.random() < 0.5) {
-                img.style.transform += " scaleX(-1)";
-            }
+		let program = null;
+		let positionLocation = -1;
+		let texCoordLocation = -1;
+		let brightnessLocation = -1;
+		let resolutionLocation = null;
+		let vertexBuffer = null;
+		let indexBuffer = null;
+		let atlasTexture = null;
 
-            img.style.filter = `brightness(${Math.random() * 1.2 - 0.5})`;
+		const brightnessVariants = [0.3, 0.5, 0.7, 0.9, 1.1, 1.3];
+		const maxSprites = 500;
+		const vertexData = new Float32Array(maxSprites * 20);
+		const indexData = new Uint16Array(maxSprites * 6);
+		const restitution = 0.9;
+		const frictionCoeff = 0.25;
+		const renderOrder = [];
+		let activeVertexData = null;
 
-            function move() {
-                x += dx;
-                y += dy;
+		if (gl) {
+			const vs = compileShader(gl, gl.VERTEX_SHADER, vsSource);
+			const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
+			if (vs && fs) {
+				program = gl.createProgram();
+				gl.attachShader(program, vs);
+				gl.attachShader(program, fs);
+				gl.linkProgram(program);
+				if (gl.getProgramParameter(program, gl.LINK_STATUS)) {
+					gl.useProgram(program);
+					positionLocation = gl.getAttribLocation(program, "a_position");
+					texCoordLocation = gl.getAttribLocation(program, "a_texCoord");
+					brightnessLocation = gl.getAttribLocation(program, "a_brightness");
+					resolutionLocation = gl.getUniformLocation(program, "u_resolution");
+					const textureLocation = gl.getUniformLocation(program, "u_texture");
+					gl.uniform1i(textureLocation, 0);
 
-                if (x <= 0 || x >= window.innerWidth - 100) {
-                    dx = -dx;
-                }
-                if (y <= 0 || y >= window.innerHeight - 100) {
-                    dy = -dy;
-                }
+					gl.enable(gl.BLEND);
+					gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+					gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 
-                img.style.left = `${x}px`;
-                img.style.top = `${y}px`;
+					atlasTexture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, atlasTexture);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+					gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1024, 128, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 
-                if (Math.random() < 0.01) {
-                    direction = Math.random() * Math.PI * 2;
-                    dx = Math.cos(direction) * speed;
-                    dy = Math.sin(direction) * speed;
-                }
+					for (let i = 0; i < maxSprites; i++) {
+						const base = i * 4;
+						const offset = i * 6;
+						indexData[offset] = base;
+						indexData[offset + 1] = base + 1;
+						indexData[offset + 2] = base + 2;
+						indexData[offset + 3] = base;
+						indexData[offset + 4] = base + 2;
+						indexData[offset + 5] = base + 3;
+					}
 
-                requestAnimationFrame(move);
-            }
+					indexBuffer = gl.createBuffer();
+					gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+					gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
 
-            move();
-            images.push(img);
-        }
+					vertexBuffer = gl.createBuffer();
+					gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+					gl.bufferData(gl.ARRAY_BUFFER, maxSprites * 20 * 4, gl.STREAM_DRAW);
 
-        function moveImagesTo(x, y) {
-            images.forEach(img => {
-                const currentX = parseFloat(img.style.left);
-                const currentY = parseFloat(img.style.top);
+					const stride = 20;
+					gl.enableVertexAttribArray(positionLocation);
+					gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, stride, 0);
 
-                const dx = (x - currentX) / 10;
-                const dy = (y - currentY) / 10;
+					gl.enableVertexAttribArray(texCoordLocation);
+					gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, stride, 8);
 
-                let step = 0;
-                function animateMove() {
-                    step++;
-                    if (step <= 100) {
-                        img.style.left = `${currentX + dx * step}px`;
-                        img.style.top = `${currentY + dy * step}px`;
-                        requestAnimationFrame(animateMove);
-                    }
-                }
+					gl.enableVertexAttribArray(brightnessLocation);
+					gl.vertexAttribPointer(brightnessLocation, 1, gl.FLOAT, false, stride, 16);
+				}
+			}
+		}
 
-                animateMove();
-            });
-        }
+		const defaultPolygonVertices = [
+			[-0.5, 0.09893],
+			[-0.48338, -0.4893],
+			[-0.4723, -0.5],
+			[0.30332, -0.47326],
+			[0.49723, -0.26471],
+			[0.39751, 0.1631],
+			[0.37535, 0.21123],
+			[0.27562, 0.3984],
+			[0.1759, 0.46257],
+			[0.10388, 0.49465],
+			[-0.21191, 0.49465],
+			[-0.31163, 0.43583],
+			[-0.41136, 0.35027],
+			[-0.46676, 0.2861],
+			[-0.48892, 0.24866],
+			[-0.5, 0.1738 ]
+		];
 
-        setTimeout(function() {
-            document.getElementById('alien-text').style.opacity = 1;
+		const alienRigs = imageSources.map(() => ({
+			vertices: defaultPolygonVertices.map(pt => [pt[0], pt[1]]),
+			inertia: 0.12
+		}));
+		const hasCustomRigs = new Array(imageSources.length).fill(false);
 
-            document.getElementById('background').style.filter = "brightness(0.5) sepia(0.5) hue-rotate(90deg)";
+		function computeRigFromImageData(imageData) {
+			const data = imageData.data;
+			const points = [];
+			for (let y = 1; y < 127; y += 2) {
+				for (let x = 1; x < 127; x += 2) {
+					const idx = (y * 128 + x) * 4;
+					if (data[idx + 3] > 25) {
+						const up = ((y - 1) * 128 + x) * 4;
+						const down = ((y + 1) * 128 + x) * 4;
+						const left = (y * 128 + (x - 1)) * 4;
+						const right = (y * 128 + (x + 1)) * 4;
+						if (data[up + 3] <= 25 || data[down + 3] <= 25 || data[left + 3] <= 25 || data[right + 3] <= 25) {
+							points.push([x, y]);
+						}
+					}
+				}
+			}
+			if (points.length < 3) return null;
+			points.sort((a, b) => a[0] === b[0] ? a[1] - b[1] : a[0] - b[0]);
+			const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+			const lower = [];
+			for (let i = 0; i < points.length; i++) {
+				while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], points[i]) <= 0) {
+					lower.pop();
+				}
+				lower.push(points[i]);
+			}
+			const upper = [];
+			for (let i = points.length - 1; i >= 0; i--) {
+				while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], points[i]) <= 0) {
+					upper.pop();
+				}
+				upper.push(points[i]);
+			}
+			lower.pop();
+			upper.pop();
+			const hull = lower.concat(upper);
+			if (hull.length < 3) return null;
+			const normalized = hull.map(p => [(p[0] - 64) / 128, (p[1] - 64) / 128]);
+			let area = 0;
+			let inertiaSum = 0;
+			const count = normalized.length;
+			for (let i = 0; i < count; i++) {
+				const j = (i + 1) % count;
+				const xi = normalized[i][0], yi = normalized[i][1];
+				const xj = normalized[j][0], yj = normalized[j][1];
+				const factor = xi * yj - xj * yi;
+				area += factor;
+				inertiaSum += factor * (xi * xi + xi * xj + xj * xj + yi * yi + yi * yj + yj * yj);
+			}
+			area = Math.abs(area * 0.5);
+			let inertia = area > 0.001 ? Math.abs(inertiaSum) / (12 * area) : 0.12;
+			inertia = Math.max(0.04, Math.min(0.25, inertia));
+			return { vertices: normalized, inertia: inertia };
+		}
 
-            for (let i = 0; i < 50; i++) {
-                for (let j = 0; j < imageSources.length; j++) {
-                    createMovingImage(imageSources[j]);
-                }
-            }
+		fetch("assets/alien_contours.json")
+			.then(response => response.ok ? response.json() : null)
+			.then(data => {
+				if (Array.isArray(data)) {
+					for (let i = 0; i < data.length && i < alienRigs.length; i++) {
+						if (data[i] && Array.isArray(data[i].vertices) && data[i].vertices.length >= 3) {
+							alienRigs[i] = {
+								vertices: data[i].vertices,
+								inertia: typeof data[i].inertia === "number" ? data[i].inertia : 0.12
+							};
+							hasCustomRigs[i] = true;
+						}
+					}
+				}
+			})
+			.catch(() => {});
 
-            document.getElementById('background-audio').play();
+		const atlasCanvas = document.createElement("canvas");
+		atlasCanvas.width = 1024;
+		atlasCanvas.height = 128;
+		const atlasCtx = atlasCanvas.getContext("2d");
 
-            setTimeout(function() {
-                document.getElementById('alien-text').style.opacity = 0;
-            }, 4000);
-        }, 7000);
+		function uploadAssetToAtlas(imageElement, columnIndex) {
+			atlasCtx.clearRect(columnIndex * 128, 0, 128, 128);
+			atlasCtx.drawImage(imageElement, columnIndex * 128, 0, 128, 128);
+			if (gl && atlasTexture) {
+				gl.bindTexture(gl.TEXTURE_2D, atlasTexture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlasCanvas);
+			}
+			if (!hasCustomRigs[columnIndex]) {
+				try {
+					const imgData = atlasCtx.getImageData(columnIndex * 128, 0, 128, 128);
+					const extracted = computeRigFromImageData(imgData);
+					if (extracted) {
+						alienRigs[columnIndex] = extracted;
+					}
+				} catch (e) {}
+			}
+		}
 
-        setTimeout(function() {
-            document.body.addEventListener('click', function(event) {
-                moveImagesTo(event.clientX, event.clientY);
-            });
+		const loadedAssets = [];
+		imageSources.forEach((src, index) => {
+			const img = new Image();
+			img.src = src;
+			loadedAssets.push(img);
+			if (img.complete && img.naturalWidth > 0) {
+				uploadAssetToAtlas(img, index);
+			} else {
+				img.addEventListener("load", () => uploadAssetToAtlas(img, index), { once: true });
+			}
+		});
 
-            document.body.addEventListener('touchstart', function(event) {
-                const touchX = event.touches[0].clientX;
-                const touchY = event.touches[0].clientY;
-                moveImagesTo(touchX, touchY);
-            });
-        }, 10000);
-    </script>
+		function resizeCanvas() {
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+			if (gl && program) {
+				gl.viewport(0, 0, canvas.width, canvas.height);
+				gl.useProgram(program);
+				gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+			}
+		}
+
+		window.addEventListener("resize", resizeCanvas);
+		resizeCanvas();
+
+		let audioContext = null;
+		let audioBuffer = null;
+		let audioSourceNode = null;
+		let audioPlaybackRequested = false;
+
+		function initAudio() {
+			try {
+				const AudioCtx = window.AudioContext || window.webkitAudioContext;
+				if (AudioCtx) {
+					audioContext = new AudioCtx();
+					const processAudioBuffer = (rawBuffer) => {
+						audioContext.decodeAudioData(rawBuffer, (decodedBuffer) => {
+							audioBuffer = decodedBuffer;
+							if (audioPlaybackRequested && !audioSourceNode) {
+								startLoopAudio();
+							}
+						}, () => {});
+					};
+					fetch("assets/audio/sound.webm")
+						.then(response => {
+							if (!response.ok) throw new Error();
+							return response.arrayBuffer();
+						})
+						.then(processAudioBuffer)
+						.catch(() => {
+							const xhr = new XMLHttpRequest();
+							xhr.open("GET", "assets/audio/sound.webm", true);
+							xhr.responseType = "arraybuffer";
+							xhr.onload = () => {
+								if (xhr.response && xhr.status < 400) {
+									processAudioBuffer(xhr.response);
+								}
+							};
+							xhr.send();
+						});
+				}
+			} catch (e) {}
+		}
+		initAudio();
+
+		function startLoopAudio() {
+			audioPlaybackRequested = true;
+			if (audioSourceNode) return;
+			const audio = document.getElementById("background-audio");
+			if (audioContext && audioBuffer) {
+				if (audioContext.state === "suspended") {
+					audioContext.resume().catch(() => {});
+				}
+				if (audio) {
+					audio.pause();
+					audio.currentTime = 0;
+					audio.removeAttribute("src");
+					audio.load();
+				}
+				audioSourceNode = audioContext.createBufferSource();
+				audioSourceNode.buffer = audioBuffer;
+				audioSourceNode.loop = true;
+				audioSourceNode.connect(audioContext.destination);
+				audioSourceNode.start(0);
+			} else if (audio) {
+				audio.loop = true;
+				const playPromise = audio.play();
+				if (playPromise !== undefined) {
+					playPromise.catch(() => {
+						const resumeAudio = () => {
+							audio.play().catch(() => {});
+							document.removeEventListener("click", resumeAudio);
+							document.removeEventListener("touchstart", resumeAudio);
+						};
+						document.addEventListener("click", resumeAudio);
+						document.addEventListener("touchstart", resumeAudio);
+					});
+				}
+			}
+		}
+
+		function unlockAudio() {
+			if (audioContext && audioContext.state === "suspended") {
+				audioContext.resume().then(() => {
+					if (audioSourceNode) {
+						document.removeEventListener("click", unlockAudio);
+						document.removeEventListener("touchstart", unlockAudio);
+					}
+				}).catch(() => {});
+			}
+			if (audioPlaybackRequested && !audioSourceNode && audioBuffer) {
+				startLoopAudio();
+			}
+			if (audioContext && audioContext.state === "running" && audioSourceNode) {
+				document.removeEventListener("click", unlockAudio);
+				document.removeEventListener("touchstart", unlockAudio);
+			}
+		}
+		document.addEventListener("click", unlockAudio);
+		document.addEventListener("touchstart", unlockAudio);
+
+		const entities = [];
+
+		function spawnEntity(sourceAsset, assetIndex) {
+			const imageIndex = typeof assetIndex === "number" ? assetIndex : loadedAssets.indexOf(sourceAsset);
+			const brightnessIndex = Math.floor(Math.random() * brightnessVariants.length);
+			const brightness = brightnessVariants[brightnessIndex];
+			const startX = (0.4 + 0.2 * Math.random()) * window.innerWidth;
+			const startY = (0.4 + 0.2 * Math.random()) * window.innerHeight;
+			const initialDirection = Math.random() * Math.PI * 2;
+			const angle = Math.random() * Math.PI * 2;
+			const entityIndex = entities.length;
+
+			const u0 = (imageIndex * 128 + 0.5) / 1024;
+			const u1 = (imageIndex * 128 + 127.5) / 1024;
+			const v0 = 0.5 / 128;
+			const v1 = 127.5 / 128;
+
+			const entity = {
+				x: startX,
+				y: startY,
+				dx: Math.cos(initialDirection) * speed + (0.1 - 0.2 * Math.random()),
+				dy: Math.sin(initialDirection) * speed + (0.1 - 0.2 * Math.random()),
+				angle: angle,
+				w: (Math.random() - 0.5) * 0.02,
+				u0: u0,
+				v0: v0,
+				u1: u1,
+				v1: v1,
+				brightness: brightness,
+				zIndex: entityIndex,
+				imageIndex: imageIndex,
+				currentSize: alienSize,
+				c: 0,
+				s: 0,
+				sx: imageIndex * 128,
+				isConverging: false,
+				startX: 0,
+				startY: 0,
+				targetX: 0,
+				targetY: 0,
+				step: 0,
+				maxSteps: 60
+			};
+
+			entities.push(entity);
+			renderOrder.push(entity);
+		}
+
+		function moveImagesTo(x, y) {
+			for (let i = 0; i < entities.length; i++) {
+				const entity = entities[i];
+				const currentHalf = entity.currentSize * 0.5;
+				entity.startX = entity.x;
+				entity.startY = entity.y;
+				entity.targetX = x - currentHalf + (Math.random() - 0.5) * 80;
+				entity.targetY = y - currentHalf + (Math.random() - 0.5) * 80;
+				entity.step = 0;
+				entity.maxSteps = 60;
+				entity.isConverging = true;
+			}
+		}
+
+		function updateEntities(dt) {
+			const count = entities.length;
+			const invCount = count > 1 ? 1 / (count - 1) : 0;
+			const canvasWidth = canvas.width;
+			const canvasHeight = canvas.height;
+
+			for (let i = 0; i < count; i++) {
+				const entity = entities[i];
+				const targetScale = 0.88 + 0.12 * (entity.zIndex * invCount);
+				const targetSize = alienSize * targetScale;
+
+				if (entity.isConverging) {
+					entity.step += dt;
+					const progress = Math.min(entity.step / entity.maxSteps, 1);
+					const rem = 1 - progress;
+					const ease = 1 - rem * rem * rem;
+					const oldX = entity.x;
+					const oldY = entity.y;
+					entity.x = entity.startX + (entity.targetX - entity.startX) * ease;
+					entity.y = entity.startY + (entity.targetY - entity.startY) * ease;
+					entity.angle += entity.w * dt;
+
+					const mdx = entity.x - oldX;
+					const mdy = entity.y - oldY;
+					const moveDist = Math.sqrt(mdx * mdx + mdy * mdy);
+					const currentSpeed = moveDist / dt || speed;
+					const sizeDelta = currentSpeed * dt;
+					const sizeDiff = targetSize - entity.currentSize;
+					if (Math.abs(sizeDiff) <= sizeDelta) {
+						entity.currentSize = targetSize;
+					} else {
+						entity.currentSize += Math.sign(sizeDiff) * sizeDelta;
+					}
+
+					if (entity.step >= entity.maxSteps) {
+						entity.isConverging = false;
+						const direction = Math.random() * Math.PI * 2;
+						entity.dx = Math.cos(direction) * speed;
+						entity.dy = Math.sin(direction) * speed;
+						entity.w = (Math.random() - 0.5) * 0.02;
+					}
+					const convHalf = entity.currentSize * 0.5;
+					entity.c = convHalf * Math.cos(entity.angle);
+					entity.s = convHalf * Math.sin(entity.angle);
+					continue;
+				}
+
+				const currentSpeed = Math.sqrt(entity.dx * entity.dx + entity.dy * entity.dy);
+				const sizeDelta = currentSpeed * dt;
+				const sizeDiff = targetSize - entity.currentSize;
+				if (Math.abs(sizeDiff) <= sizeDelta) {
+					entity.currentSize = targetSize;
+				} else {
+					entity.currentSize += Math.sign(sizeDiff) * sizeDelta;
+				}
+
+				entity.x += entity.dx * dt;
+				entity.y += entity.dy * dt;
+				entity.angle += entity.w * dt;
+
+				const curHalf = entity.currentSize * 0.5;
+				const curSize = entity.currentSize;
+				let cx = entity.x + curHalf;
+				let cy = entity.y + curHalf;
+				const cos = Math.cos(entity.angle);
+				const sin = Math.sin(entity.angle);
+				entity.c = curHalf * cos;
+				entity.s = curHalf * sin;
+
+				const rig = alienRigs[entity.imageIndex];
+				const vertices = rig.vertices;
+				const vertexCount = vertices.length;
+				const curInertia = rig.inertia * curSize * curSize;
+
+				let minPx = Infinity, maxPx = -Infinity;
+				let minPy = Infinity, maxPy = -Infinity;
+				let rxL = 0, ryL = 0;
+				let rxR = 0, ryR = 0;
+				let rxT = 0, ryT = 0;
+				let rxB = 0, ryB = 0;
+
+				for (let k = 0; k < vertexCount; k++) {
+					const vk = vertices[k];
+					const rx = curSize * (vk[0] * cos - vk[1] * sin);
+					const ry = curSize * (vk[0] * sin + vk[1] * cos);
+					const px = cx + rx;
+					const py = cy + ry;
+
+					if (px < minPx) { minPx = px; rxL = rx; ryL = ry; }
+					if (px > maxPx) { maxPx = px; rxR = rx; ryR = ry; }
+					if (py < minPy) { minPy = py; rxT = rx; ryT = ry; }
+					if (py > maxPy) { maxPy = py; rxB = rx; ryB = ry; }
+				}
+
+				let bounced = false;
+
+				if (minPx <= 0) {
+					const vcx = entity.dx - entity.w * ryL;
+					const vcy = entity.dy + entity.w * rxL;
+					if (vcx < 0) {
+						cx += -minPx;
+						entity.x = cx - curHalf;
+						const mn = 1 + (ryL * ryL) / curInertia;
+						const jn = -(1 + restitution) * (vcx / mn);
+						const mt = 1 + (rxL * rxL) / curInertia;
+						let jt = -vcy / mt;
+						const maxFriction = frictionCoeff * Math.abs(jn);
+						jt = Math.max(-maxFriction, Math.min(maxFriction, jt));
+						entity.dx += jn;
+						entity.dy += jt;
+						entity.w += (rxL * jt - ryL * jn) / curInertia;
+						bounced = true;
+					}
+				} else if (maxPx >= canvasWidth) {
+					const vcx = entity.dx - entity.w * ryR;
+					const vcy = entity.dy + entity.w * rxR;
+					if (vcx > 0) {
+						cx -= (maxPx - canvasWidth);
+						entity.x = cx - curHalf;
+						const mn = 1 + (ryR * ryR) / curInertia;
+						const jn = (1 + restitution) * (vcx / mn);
+						const mt = 1 + (rxR * rxR) / curInertia;
+						let jt = -vcy / mt;
+						const maxFriction = frictionCoeff * Math.abs(jn);
+						jt = Math.max(-maxFriction, Math.min(maxFriction, jt));
+						entity.dx -= jn;
+						entity.dy += jt;
+						entity.w += (rxR * jt + ryR * jn) / curInertia;
+						bounced = true;
+					}
+				}
+
+				if (minPy <= 0) {
+					const vcx = entity.dx - entity.w * ryT;
+					const vcy = entity.dy + entity.w * rxT;
+					if (vcy < 0) {
+						cy += -minPy;
+						entity.y = cy - curHalf;
+						const mn = 1 + (rxT * rxT) / curInertia;
+						const jn = -(1 + restitution) * (vcy / mn);
+						const mt = 1 + (ryT * ryT) / curInertia;
+						let jt = -vcx / mt;
+						const maxFriction = frictionCoeff * Math.abs(jn);
+						jt = Math.max(-maxFriction, Math.min(maxFriction, jt));
+						entity.dy += jn;
+						entity.dx += jt;
+						entity.w += (-ryT * jt + rxT * jn) / curInertia;
+						bounced = true;
+					}
+				} else if (maxPy >= canvasHeight) {
+					const vcx = entity.dx - entity.w * ryB;
+					const vcy = entity.dy + entity.w * rxB;
+					if (vcy > 0) {
+						cy -= (maxPy - canvasHeight);
+						entity.y = cy - curHalf;
+						const mn = 1 + (rxB * rxB) / curInertia;
+						const jn = (1 + restitution) * (vcy / mn);
+						const mt = 1 + (rxB * rxB) / curInertia;
+						let jt = -vcx / mt;
+						const maxFriction = frictionCoeff * Math.abs(jn);
+						jt = Math.max(-maxFriction, Math.min(maxFriction, jt));
+						entity.dy -= jn;
+						entity.dx += jt;
+						entity.w += (-ryB * jt - rxB * jn) / curInertia;
+						bounced = true;
+					}
+				}
+
+				entity.w = Math.max(-0.035, Math.min(0.035, entity.w));
+
+				const spd = Math.sqrt(entity.dx * entity.dx + entity.dy * entity.dy);
+				if (spd > 5.5) {
+					const invSpd = 5.5 / spd;
+					entity.dx *= invSpd;
+					entity.dy *= invSpd;
+				} else if (spd < 1.5) {
+					const invSpd = 1.5 / (spd || 1);
+					entity.dx *= invSpd;
+					entity.dy *= invSpd;
+				}
+
+				if (bounced) {
+					if (Math.random() < 0.4) {
+						const curIdx = entity.zIndex;
+						const targetIdx = (Math.random() * count) | 0;
+						if (curIdx !== targetIdx) {
+							const other = renderOrder[targetIdx];
+							renderOrder[curIdx] = other;
+							renderOrder[targetIdx] = entity;
+							entity.zIndex = targetIdx;
+							other.zIndex = curIdx;
+						}
+					}
+				} else if (Math.random() < 0.005 * dt) {
+					const direction = Math.random() * Math.PI * 2;
+					entity.dx = Math.cos(direction) * speed;
+					entity.dy = Math.sin(direction) * speed;
+					entity.w = (Math.random() - 0.5) * 0.02;
+				}
+			}
+		}
+
+		function renderEntities() {
+			const count = entities.length;
+			if (count === 0) return;
+
+			if (gl && program) {
+				for (let i = 0; i < count; i++) {
+					const entity = renderOrder[i];
+					const curHalf = entity.currentSize * 0.5;
+					const cx = entity.x + curHalf;
+					const cy = entity.y + curHalf;
+					const c = entity.c;
+					const s = entity.s;
+
+					const ux = c - s;
+					const uy = s + c;
+					const vx = c + s;
+					const vy = s - c;
+
+					const idx = i * 20;
+
+					vertexData[idx] = cx - ux;
+					vertexData[idx + 1] = cy - uy;
+					vertexData[idx + 2] = entity.u0;
+					vertexData[idx + 3] = entity.v0;
+					vertexData[idx + 4] = entity.brightness;
+
+					vertexData[idx + 5] = cx + vx;
+					vertexData[idx + 6] = cy + vy;
+					vertexData[idx + 7] = entity.u1;
+					vertexData[idx + 8] = entity.v0;
+					vertexData[idx + 9] = entity.brightness;
+
+					vertexData[idx + 10] = cx + ux;
+					vertexData[idx + 11] = cy + uy;
+					vertexData[idx + 12] = entity.u1;
+					vertexData[idx + 13] = entity.v1;
+					vertexData[idx + 14] = entity.brightness;
+
+					vertexData[idx + 15] = cx - vx;
+					vertexData[idx + 16] = cy - vy;
+					vertexData[idx + 17] = entity.u0;
+					vertexData[idx + 18] = entity.v1;
+					vertexData[idx + 19] = entity.brightness;
+				}
+
+				gl.clearColor(0.0, 0.0, 0.0, 0.0);
+				gl.clear(gl.COLOR_BUFFER_BIT);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+				gl.bufferData(gl.ARRAY_BUFFER, activeVertexData, gl.STREAM_DRAW);
+				gl.drawElements(gl.TRIANGLES, count * 6, gl.UNSIGNED_SHORT, 0);
+			} else if (ctx) {
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				for (let i = 0; i < count; i++) {
+					const entity = renderOrder[i];
+					const curHalf = entity.currentSize * 0.5;
+					const curSize = entity.currentSize;
+					const cx = entity.x + curHalf;
+					const cy = entity.y + curHalf;
+					const cos = Math.cos(entity.angle);
+					const sin = Math.sin(entity.angle);
+					ctx.setTransform(cos, sin, -sin, cos, cx, cy);
+					ctx.drawImage(atlasCanvas, entity.sx, 0, 128, 128, -curHalf, -curHalf, curSize, curSize);
+				}
+				ctx.setTransform(1, 0, 0, 1, 0, 0);
+			}
+		}
+
+		let previousTimestamp = 0;
+		function animationLoop(timestamp) {
+			if (!previousTimestamp) {
+				previousTimestamp = timestamp;
+			}
+			const delta = timestamp - previousTimestamp;
+			previousTimestamp = timestamp;
+			const dt = Math.min(Math.max(delta / 16.6667, 0.2), 3.0);
+
+			updateEntities(dt);
+			renderEntities();
+			requestAnimationFrame(animationLoop);
+		}
+
+		setTimeout(function() {
+			document.getElementById('alien-text').style.opacity = 1;
+			document.getElementById('background').style.filter = "brightness(0.5) sepia(0.5) hue-rotate(90deg)";
+
+			for (let i = 0; i < 50; i++) {
+				for (let j = 0; j < loadedAssets.length; j++) {
+					spawnEntity(loadedAssets[j], j);
+				}
+			}
+
+			const totalEntities = entities.length;
+			const invTotalEntities = totalEntities > 1 ? 1 / (totalEntities - 1) : 0;
+			for (let i = 0; i < totalEntities; i++) {
+				const entity = entities[i];
+				entity.zIndex = i;
+				entity.currentSize = alienSize * (0.88 + 0.12 * (i * invTotalEntities));
+				const half = entity.currentSize * 0.5;
+				entity.c = half * Math.cos(entity.angle);
+				entity.s = half * Math.sin(entity.angle);
+			}
+
+			activeVertexData = vertexData.subarray(0, totalEntities * 20);
+
+			requestAnimationFrame(animationLoop);
+
+			startLoopAudio();
+
+			setTimeout(function() {
+				document.getElementById('alien-text').style.opacity = 0;
+			}, 4000);
+		}, 7000);
+
+		setTimeout(function() {
+			document.body.addEventListener('click', function(event) {
+				moveImagesTo(event.clientX, event.clientY);
+			});
+
+			document.body.addEventListener('touchstart', function(event) {
+				const touchX = event.touches[0].clientX;
+				const touchY = event.touches[0].clientY;
+				moveImagesTo(touchX, touchY);
+			}, { passive: true });
+		}, 10000);
+	</script>
 
 </body>
 </html>
